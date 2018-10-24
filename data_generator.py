@@ -91,7 +91,10 @@ class DataGenerator(object):
         # make list of files
         print('Generating filenames')
         all_filenames = []
-        for _ in range(num_total_batches):
+        # for _ in range(num_total_batches):
+        for idx in range(num_total_batches):
+            if idx % 500 == 0:
+                print(idx)
             sampled_character_folders = random.sample(folders, self.num_classes)
             random.shuffle(sampled_character_folders)
             labels_and_images = get_images(sampled_character_folders, range(self.num_classes), nb_samples=self.num_samples_per_class, shuffle=False)
