@@ -49,6 +49,7 @@ flags.DEFINE_float('meta_lr', 0.001, 'the base learning rate of the generator')
 flags.DEFINE_integer('update_batch_size', 5, 'number of examples used for inner gradient update (K for K-shot learning).')
 flags.DEFINE_float('update_lr', 1e-3, 'step size alpha for inner gradient update.') # 0.1 for omniglot
 flags.DEFINE_integer('num_updates', 1, 'number of inner gradient updates during training.')
+# FIXME: How about the number of query examples?
 
 ## Model options
 flags.DEFINE_string('norm', 'batch_norm', 'batch_norm, layer_norm, or None')
@@ -223,7 +224,7 @@ def main():
             if FLAGS.train == True:
                 test_num_updates = 1  # eval on at least one update during training
             else:
-                test_num_updates = 10
+                test_num_updates = 10  # FIXME: Why test_num_updates are not same during traninig
         else:
             test_num_updates = 10
 
@@ -235,13 +236,13 @@ def main():
     if FLAGS.datasource == 'sinusoid':
         data_generator = DataGenerator(FLAGS.update_batch_size*2, FLAGS.meta_batch_size)
     else:
-        if FLAGS.metatrain_iterations == 0 and FLAGS.datasource == 'miniimagenet':
+        if FLAGS.metatrain_iterations == 0 and FLAGS.datasource == 'miniimagenet':  # FIXME: Just for debugging?
             assert FLAGS.meta_batch_size == 1
             assert FLAGS.update_batch_size == 1
             data_generator = DataGenerator(1, FLAGS.meta_batch_size)  # only use one datapoint,
         else:
-            if FLAGS.datasource == 'miniimagenet': # TODO - use 15 val examples for imagenet?
-                if FLAGS.train:
+            if FLAGS.datasource == 'miniimagenet':  # TODO - use 15 val examples for imagenet?
+                if FLAGS.train:  # Support examples: update_batch_size / Query examples: 15
                     data_generator = DataGenerator(FLAGS.update_batch_size+15, FLAGS.meta_batch_size)  # only use one datapoint for testing to save memory
                 else:
                     data_generator = DataGenerator(FLAGS.update_batch_size*2, FLAGS.meta_batch_size)  # only use one datapoint for testing to save memory
@@ -264,15 +265,15 @@ def main():
 
         if FLAGS.train: # only construct training model if needed
             random.seed(5)
-            image_tensor, label_tensor = data_generator.make_data_tensor()
-            inputa = tf.slice(image_tensor, [0,0,0], [-1,num_classes*FLAGS.update_batch_size, -1])
-            inputb = tf.slice(image_tensor, [0,num_classes*FLAGS.update_batch_size, 0], [-1,-1,-1])
+            image_tensor, label_tensor = data_generator.make_data_tensor()  # Training.
+            inputa = tf.slice(image_tensor, [0,0,0], [-1,num_classes*FLAGS.update_batch_size, -1])   # Support.
+            inputb = tf.slice(image_tensor, [0,num_classes*FLAGS.update_batch_size, 0], [-1,-1,-1])  # Query.
             labela = tf.slice(label_tensor, [0,0,0], [-1,num_classes*FLAGS.update_batch_size, -1])
             labelb = tf.slice(label_tensor, [0,num_classes*FLAGS.update_batch_size, 0], [-1,-1,-1])
             input_tensors = {'inputa': inputa, 'inputb': inputb, 'labela': labela, 'labelb': labelb}
 
         random.seed(6)
-        image_tensor, label_tensor = data_generator.make_data_tensor(train=False)
+        image_tensor, label_tensor = data_generator.make_data_tensor(train=False)  # Evaluation.
         inputa = tf.slice(image_tensor, [0,0,0], [-1,num_classes*FLAGS.update_batch_size, -1])
         inputb = tf.slice(image_tensor, [0,num_classes*FLAGS.update_batch_size, 0], [-1,-1,-1])
         labela = tf.slice(label_tensor, [0,0,0], [-1,num_classes*FLAGS.update_batch_size, -1])
@@ -282,11 +283,11 @@ def main():
         tf_data_load = False
         input_tensors = None
 
-    model = MAML(dim_input, dim_output, test_num_updates=test_num_updates)
+    model = MAML(dim_input, dim_output, test_num_updates=test_num_updates)  # MAML model.
     if FLAGS.train or not tf_data_load:
-        model.construct_model(input_tensors=input_tensors, prefix='metatrain_')
+        model.construct_model(input_tensors=input_tensors, prefix='metatrain_')  # Train.
     if tf_data_load:
-        model.construct_model(input_tensors=metaval_input_tensors, prefix='metaval_')
+        model.construct_model(input_tensors=metaval_input_tensors, prefix='metaval_')  # Eval.
     model.summ_op = tf.summary.merge_all()
 
     saver = loader = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES), max_to_keep=10)

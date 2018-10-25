@@ -20,7 +20,7 @@ class MAML:
         self.dim_input = dim_input
         self.dim_output = dim_output
         self.update_lr = FLAGS.update_lr
-        self.meta_lr = tf.placeholder_with_default(FLAGS.meta_lr, ())
+        self.meta_lr = tf.placeholder_with_default(FLAGS.meta_lr, ())  # Interesting usage.
         self.classification = False
         self.test_num_updates = test_num_updates
         if FLAGS.datasource == 'sinusoid':
@@ -31,10 +31,10 @@ class MAML:
         elif FLAGS.datasource == 'omniglot' or FLAGS.datasource == 'miniimagenet':
             self.loss_func = xent
             self.classification = True
-            if FLAGS.conv:
+            if FLAGS.conv:  # Default: Use conv. layers.
                 self.dim_hidden = FLAGS.num_filters
-                self.forward = self.forward_conv
-                self.construct_weights = self.construct_conv_weights
+                self.forward = self.forward_conv  # Function.
+                self.construct_weights = self.construct_conv_weights  # Function.
             else:
                 self.dim_hidden = [256, 128, 64, 64]
                 self.forward=self.forward_fc
@@ -50,8 +50,8 @@ class MAML:
     def construct_model(self, input_tensors=None, prefix='metatrain_'):
         # a: training data for inner gradient, b: test data for meta gradient
         if input_tensors is None:
-            self.inputa = tf.placeholder(tf.float32)
-            self.inputb = tf.placeholder(tf.float32)
+            self.inputa = tf.placeholder(tf.float32)  # Support.
+            self.inputb = tf.placeholder(tf.float32)  # Query.
             self.labela = tf.placeholder(tf.float32)
             self.labelb = tf.placeholder(tf.float32)
         else:
@@ -71,10 +71,10 @@ class MAML:
             # outputbs[i] and lossesb[i] is the output and loss after i+1 gradient updates
             lossesa, outputas, lossesb, outputbs = [], [], [], []
             accuraciesa, accuraciesb = [], []
-            num_updates = max(self.test_num_updates, FLAGS.num_updates)
-            outputbs = [[]]*num_updates
-            lossesb = [[]]*num_updates
-            accuraciesb = [[]]*num_updates
+            num_updates = max(self.test_num_updates, FLAGS.num_updates)  # FIXME: This max is strange! Just overwrite...
+            outputbs = [[]]*num_updates     # Query. FIXME: Why does query set have many lists?
+            lossesb = [[]]*num_updates      #
+            accuraciesb = [[]]*num_updates  #
 
             def task_metalearn(inp, reuse=True):
                 """ Perform gradient descent for one task in the meta-batch. """
@@ -118,7 +118,7 @@ class MAML:
                 return task_output
 
             if FLAGS.norm is not 'None':
-                # to initialize the batch norm vars, might want to combine this, and not run idx 0 twice.
+                # to initialize the batch norm vars, might want to combine this, and not run idx 0 twice. FIXME:?
                 unused = task_metalearn((self.inputa[0], self.inputb[0], self.labela[0], self.labelb[0]), False)
 
             out_dtype = [tf.float32, [tf.float32]*num_updates, tf.float32, [tf.float32]*num_updates]
@@ -182,7 +182,7 @@ class MAML:
             hidden = normalize(tf.matmul(hidden, weights['w'+str(i+1)]) + weights['b'+str(i+1)], activation=tf.nn.relu, reuse=reuse, scope=str(i+1))
         return tf.matmul(hidden, weights['w'+str(len(self.dim_hidden)+1)]) + weights['b'+str(len(self.dim_hidden)+1)]
 
-    def construct_conv_weights(self):
+    def construct_conv_weights(self):  # Default: Conv. weights.
         weights = {}
 
         dtype = tf.float32

@@ -14,7 +14,7 @@ class DataGenerator(object):
     Data Generator capable of generating batches of sinusoid or Omniglot data.
     A "class" is considered a class of omniglot digits or a particular sinusoid function.
     """
-    def __init__(self, num_samples_per_class, batch_size, config={}):
+    def __init__(self, num_samples_per_class, batch_size, config={}):  # FIXME: Seems config is never fed from outside.
         """
         Args:
             num_samples_per_class: num samples to generate per class in one batch
@@ -93,13 +93,16 @@ class DataGenerator(object):
         all_filenames = []
         # for _ in range(num_total_batches):
         for idx in range(num_total_batches):
-            if idx % 500 == 0:
-                print(idx)
+            if idx % 500 == 0:  # On cube, 500 batches require ~1s to proceed. Thus, ~400s (7min) in total.
+                print(idx)      # On local filesystem, it is faster.
             sampled_character_folders = random.sample(folders, self.num_classes)
             random.shuffle(sampled_character_folders)
-            labels_and_images = get_images(sampled_character_folders, range(self.num_classes), nb_samples=self.num_samples_per_class, shuffle=False)
+            labels_and_images = get_images(sampled_character_folders, range(self.num_classes),
+                                           nb_samples=self.num_samples_per_class, shuffle=False)
+            # FIXME: Here range(self.num_classes) is a fake list of classes (it is more like a list of indices).
+            # FIXME: shuffle=False means the order of indices is fixed (0,0,...0,1,..,1,.....4).
             # make sure the above isn't randomized order
-            labels = [li[0] for li in labels_and_images]
+            labels = [li[0] for li in labels_and_images]  # FIXME: Labels are not saved into a larger list?
             filenames = [li[1] for li in labels_and_images]
             all_filenames.extend(filenames)
 
@@ -107,7 +110,7 @@ class DataGenerator(object):
         filename_queue = tf.train.string_input_producer(tf.convert_to_tensor(all_filenames), shuffle=False)
         print('Generating image processing ops')
         image_reader = tf.WholeFileReader()
-        _, image_file = image_reader.read(filename_queue)
+        _, image_file = image_reader.read(filename_queue)  # FIXME: Need to understand the data loading pipeline in TF.
         if FLAGS.datasource == 'miniimagenet':
             image = tf.image.decode_jpeg(image_file, channels=3)
             image.set_shape((self.img_size[0],self.img_size[1],3))
@@ -121,46 +124,54 @@ class DataGenerator(object):
             image = 1.0 - image  # invert
         num_preprocess_threads = 1 # TODO - enable this to be set to >1
         min_queue_examples = 256
-        examples_per_batch = self.num_classes * self.num_samples_per_class
-        batch_image_size = self.batch_size  * examples_per_batch
+        examples_per_batch = self.num_classes * self.num_samples_per_class  # An episode
+        batch_image_size = self.batch_size * examples_per_batch
         print('Batching images')
         images = tf.train.batch(
                 [image],
-                batch_size = batch_image_size,
+                batch_size = batch_image_size,        # batch_size * num_classes * num_samples_per_class
                 num_threads=num_preprocess_threads,
-                capacity=min_queue_examples + 3 * batch_image_size,
+                capacity=min_queue_examples + 3 * batch_image_size,  # FIXME: Capacity: max num of elements in queue.
                 )
         all_image_batches, all_label_batches = [], []
         print('Manipulating image data to be right shape')
         for i in range(self.batch_size):
-            image_batch = images[i*examples_per_batch:(i+1)*examples_per_batch]
+            image_batch = images[i*examples_per_batch:(i+1)*examples_per_batch]  # An episode (a.k.a batch here).
 
             if FLAGS.datasource == 'omniglot':
                 # omniglot augments the dataset by rotating digits to create new classes
                 # get rotation per class (e.g. 0,1,2,0,0 if there are 5 classes)
                 rotations = tf.multinomial(tf.log([[1., 1.,1.,1.]]), self.num_classes)
             label_batch = tf.convert_to_tensor(labels)
+            # FIXME: labels are shared for all episodes. This is due to the shuffle=False in get_images().
+            # FIXME: Labels: (0,0,...0,1,..,1,.....4).
             new_list, new_label_list = [], []
             for k in range(self.num_samples_per_class):
                 class_idxs = tf.range(0, self.num_classes)
-                class_idxs = tf.random_shuffle(class_idxs)
+                class_idxs = tf.random_shuffle(class_idxs)  # FIXME: Strange step.
 
                 true_idxs = class_idxs*self.num_samples_per_class + k
-                new_list.append(tf.gather(image_batch,true_idxs))
+                new_list.append(tf.gather(image_batch,true_idxs))  # FIXME: Get 5 images (corresponding to class_idxs).
                 if FLAGS.datasource == 'omniglot': # and FLAGS.train:
                     new_list[-1] = tf.stack([tf.reshape(tf.image.rot90(
                         tf.reshape(new_list[-1][ind], [self.img_size[0],self.img_size[1],1]),
                         k=tf.cast(rotations[0,class_idxs[ind]], tf.int32)), (self.dim_input,))
                         for ind in range(self.num_classes)])
                 new_label_list.append(tf.gather(label_batch, true_idxs))
+                # FIXME: Here it saves the shuffled indices.
+                # FIXME: However, since tf.gather(label_batch, true_idxs) == class_idxs,
+                # FIXME: Why not directly save the class_idxs?
             new_list = tf.concat(new_list, 0)  # has shape [self.num_classes*self.num_samples_per_class, self.dim_input]
             new_label_list = tf.concat(new_label_list, 0)
             all_image_batches.append(new_list)
             all_label_batches.append(new_label_list)
         all_image_batches = tf.stack(all_image_batches)
+        #  all_image_batches: size = [self.batch_size, self.num_classes*self.num_samples_per_class, self.dim_input]
         all_label_batches = tf.stack(all_label_batches)
+        #  all_label_batches: size = [self.batch_size, self.num_classes*self.num_samples_per_class]
         all_label_batches = tf.one_hot(all_label_batches, self.num_classes)
-        return all_image_batches, all_label_batches
+        #  all_label_batches: size = [self.batch_size, self.num_classes*self.num_samples_per_class, self.num_classes]
+        return all_image_batches, all_label_batches  # (1) One-hot labels. (2) Returned batch_size episodes.
 
     def generate_sinusoid_batch(self, train=True, input_idx=None):
         # Note train arg is not used (but it is used for omniglot method.
